@@ -1,50 +1,70 @@
-import { ApiException, fromHono } from "chanfana";
 import { Hono } from "hono";
-import { tasksRouter } from "./endpoints/tasks/router";
-import { ContentfulStatusCode } from "hono/utils/http-status";
-import { DummyEndpoint } from "./endpoints/dummyEndpoint";
+import { cors } from "hono/cors";
 
-// Start a Hono app
-const app = new Hono<{ Bindings: Env }>();
+type Bindings = {
+  DB: D1Database;
+};
 
-app.onError((err, c) => {
-	if (err instanceof ApiException) {
-		// If it's a Chanfana ApiException, let Chanfana handle the response
-		return c.json(
-			{ success: false, errors: err.buildResponse() },
-			err.status as ContentfulStatusCode,
-		);
-	}
+const app = new Hono<{ Bindings: Bindings }>();
 
-	console.error("Global error handler caught:", err); // Log the error if it's not known
+app.use(
+  "*",
+  cors({
+    origin: "https://xc-forza.xabiercubeiro.workers.dev",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type"],
+  })
+);
 
-	// For other errors, return a generic 500 response
-	return c.json(
-		{
-			success: false,
-			errors: [{ code: 7000, message: "Internal Server Error" }],
-		},
-		500,
-	);
+app.get("/health", (c) => {
+  return c.json({
+    ok: true,
+    service: "xc-forza-backend",
+  });
 });
 
-// Setup OpenAPI registry
-const openapi = fromHono(app, {
-	docs_url: "/",
-	schema: {
-		info: {
-			title: "My Awesome API",
-			version: "2.0.0",
-			description: "This is the documentation for my awesome API.",
-		},
-	},
+app.get("/api/home", async (c) => {
+  const userId = Number(c.req.query("userId") ?? "1");
+
+  const user = await c.env.DB
+    .prepare(
+      `SELECT id, name, email, role
+       FROM users
+       WHERE id = ?`
+    )
+    .bind(userId)
+    .first();
+
+  if (!user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const nextSession = await c.env.DB
+    .prepare(
+      `SELECT
+         s.id,
+         s.starts_at,
+         s.capacity,
+         s.status,
+         g.name AS group_name,
+         COUNT(r.id) AS booked
+       FROM sessions s
+       JOIN groups g ON g.id = s.group_id
+       LEFT JOIN reservations r
+         ON r.session_id = s.id
+        AND r.status = 'confirmed'
+       WHERE s.status = 'active'
+         AND datetime(s.starts_at) >= datetime('now')
+       GROUP BY s.id
+       ORDER BY datetime(s.starts_at)
+       LIMIT 1`
+    )
+    .first();
+
+  return c.json({
+    user,
+    nextSession,
+  });
 });
 
-// Register Tasks Sub router
-openapi.route("/tasks", tasksRouter);
-
-// Register other endpoints
-openapi.post("/dummy/:slug", DummyEndpoint);
-
-// Export the Hono app
 export default app;
