@@ -1,0 +1,16 @@
+{
+	"compatibility_date": "2025-10-08",
+	"main": "src/index.ts",
+	"name": "xc-forza-backend",
+	"upload_source_maps": true,
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "xc-forza",
+			"database_id": "e1870000-33b4-4db8-81d4-5766389b7b28"
+		}
+	]
+}
